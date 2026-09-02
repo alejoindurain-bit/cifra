@@ -94,6 +94,11 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool({ connectionString: databaseUrl });
+    // Apply pending migrations on first connect. Vercel's build sandbox cannot
+    // resolve the Neon hostname (cross-region DNS), so migrations run at
+    // runtime on the serverless instance instead. Idempotent — the second
+    // request sees the up-to-date `_migrations` table and skips.
+    await applyNeonMigrations(pool);
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -103,6 +108,47 @@ function createNeonSql(): Promise<Sql> {
     throw err;
   });
   return globalRef.__pgSqlPromise__;
+}
+
+/**
+ * Apply pending `migrations/*.sql` files against the Neon pool. The migration
+ * files are inlined by the bundler (no runtime fs) and tracked in
+ * `_migrations` so the operation is a no-op after the first run.
+ */
+async function applyNeonMigrations(pool: import("pg").Pool): Promise<void> {
+  const migrations = import.meta.glob("/migrations/*.sql", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+  const client = await pool.connect();
+  try {
+    await client.query(
+      "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    );
+    const doneRows = await client.query<{ name: string }>("select name from _migrations");
+    const done = doneRows.rows.map((r) => r.name);
+    for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+      const text = migrations[path];
+      try {
+        await client.query("begin");
+        await client.query(text);
+        await client.query("insert into _migrations (name) values ($1)", [name]);
+        await client.query("commit");
+        console.log(`[db] applied ${name}`);
+      } catch (err) {
+        try {
+          await client.query("rollback");
+        } catch {
+          // ROLLBACK fails when the connection died — keep the original error.
+        }
+        console.error(`[db] error applying ${name}`);
+        throw err;
+      }
+    }
+  } finally {
+    client.release();
+  }
 }
 
 async function createPgliteSql(): Promise<Sql> {
