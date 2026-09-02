@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "vite build && npm run db:migrate && node scripts/copy-pglite-assets.mjs",
+  "framework": null,
+  "installCommand": "npm install"
+}
