@@ -1,0 +1,84 @@
+IdeasCIFRAMULTI
+=================
+
+Sección 3 — Ajustes configurables por estudio (vocabulario) — IMPLEMENTADA
+---------------------------------------------------------------------------
+
+3.1. Medios de cobro (cuentas de transferencia y métodos de pago)        ✓ hecho
+3.2. Documentación (Recibo, Factura, Nota de crédito, etc.)               ✓ hecho
+3.3. Tipos de empresa (S.A., S.R.L., S.A.S., Unipersonal)                 ✓ hecho
+3.4. Condiciones de IVA (Responsable Inscripto, Monotributo, Exento)      ✓ hecho
+3.5. Categorías de Monotributo (A–K)                                      ✓ hecho
+
+
+Otras ideas para la pestaña de Ajustes (no implementadas)
+---------------------------------------------------------
+
+[1] Datos fijos del estudio para el PDF (logo, dirección, contacto)        ✓ HECHO
+    - Hoy si imprimís un recibo dice sólo el nombre del estudio.
+    - Si cada estudio carga su logo, domicilio, CUIT de la firma, teléfono,
+      email y web, el PDF queda presentable sin tocar nada del motor de
+      impresión.
+    - Es un alta, no un refactor.
+    - Implementado: tabla estudio_metadata, upload de logo a public/uploads/logos,
+      domicilio estructurado (calle/numero/piso/depto/localidad/provincia/cp),
+      CUIT/teléfono/email/web. Aparece en el PDF de cuenta corriente (el que
+      se manda por mail con colores), no en el recibo de caja (B&W para
+      imprimir, sigue simple).
+    - Layout: en la primera página, logo a la izquierda + domicilio/contacto
+      a la derecha, mismo alto. Footer de todas las páginas: nombre del
+      estudio + ciudad + CUIT.
+    - Nota técnica: jsPDF no puede fetchear URLs, así que el cliente convierte
+      el logo a data URL antes de pasarlo al generador. PNG/JPEG soportados;
+      SVG/WebP caen silenciosamente.
+
+[2] Valor del módulo CPCEBA editable
+    - El módulo se está trayendo de una API externa, pero cada estudio puede
+      tener su propio "valor del módulo aplicado" (algunos facturan con +X%,
+      otros con módulos diferentes).
+    - Un campo numérico editable por estudio, con un override del valor de
+      la API, cubre el 90% de los casos reales de un estudio en Argentina.
+
+[3] Plantillas de cargo puntual (Extraordinarios)                           EN PROGRESO
+    - Actualmente el concepto del cargo en Extraordinarios es string libre.
+    - Si permitís que el estudio defina plantillas (ej: "Liquidación IIBB",
+      "Certificación de ingresos", "Trámite AFIP", "Constitución SAS"),
+      aparecen como opción al armar un cargo, con el importe sugerido
+      editable (ambos campos quedan editables después de elegir la plantilla).
+    - Misma mecánica que las plantillas de honorario del cliente (que viven
+      en localStorage por estudio): un botón "¿Aplicar una plantilla?" en el
+      form de Nuevo cargo, abre un dialog con la lista + "Crear plantilla"
+      inline.
+    - Campos de la plantilla: nombre, concepto, importe sugerido, categoría
+      (Honorarios / Trámites / Certificaciones), activo/inactivo.
+    - Persistencia: localStorage (clave cifra-cargo-templates-{estudioId}),
+      igual que honorario-templates. Sin migración, sin server functions.
+    - Diferencia importante: las plantillas de honorario del cliente (que
+      ya existen) son recurrentes — definen la cuota mensual automática.
+      Estas son puntuales — un solo cargo que se emite una vez.
+
+[4] Plantillas de observación / texto legal del recibo
+    - Texto fijo al pie del recibo ("Este recibo es válido como
+      constancia...", "Forma de pago: 30 días", etc.).
+    - Es un textarea por estudio, con preview en vivo del recibo.
+    - Es chiquito pero diferenciador.
+
+[5] Vencimientos propios del estudio
+    - Hoy el sistema tiene una lista de vencimientos "típicos" hardcodeados
+      (IIBB, IVA, monotributo, etc.).
+    - Permitir que cada estudio agregue los suyos con su día del mes + tipo
+      + cliente-asignable.
+    - Es un módulo nuevo pero no rompe nada.
+
+[6] Reglas de cuenta corriente (interés por mora, días de gracia)
+    - Más invasivo: toca el motor de cálculo.
+    - Recomiendo dejarlo para más adelante, una vez que los honorarios
+      estén bien definidos por estudio.
+
+
+Prioridad sugerida
+------------------
+- Arrancar por 1 y 2: los más chicos, los más visibles (cambian el PDF y
+  la facturación), y no dependen de nada nuevo.
+- El 3 es la continuación natural de lo que ya hicimos con el vocabulario.
+- El 4-5-6 se pueden ir haciendo de a uno.
