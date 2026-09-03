@@ -85,20 +85,46 @@ function toSql(run: Run): Sql {
   return sql;
 }
 
+/**
+ * Build a `pg` Pool from a Neon connection URL. The pooled endpoint
+ * (`*-pooler.*`) only accepts IPv6 connections, which Vercel's serverless
+ * runtime (IPv4-only) cannot reach — it answers with `ECONNREFUSED`. When that
+ * happens, retry against the direct endpoint (`*` without `-pooler`), which
+ * accepts IPv4. Local dev (dual-stack) never hits the fallback.
+ */
+function buildNeonPool(url: string): Promise<import("pg").Pool> {
+  return import("pg").then(({ Pool }) => new Pool({ connectionString: url }));
+}
+
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
-    // pooled endpoint. One pool per process; warm serverless instances reuse it.
-    const { Pool, types } = await import("pg");
+    const { types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+
+    let pool = await buildNeonPool(databaseUrl);
     // Apply pending migrations on first connect. Vercel's build sandbox cannot
     // resolve the Neon hostname (cross-region DNS), so migrations run at
     // runtime on the serverless instance instead. Idempotent — the second
     // request sees the up-to-date `_migrations` table and skips.
-    await applyNeonMigrations(pool);
+    try {
+      await applyNeonMigrations(pool);
+    } catch (err) {
+      // The pooler endpoint rejects IPv4-only runtimes. Fall back to the
+      // direct endpoint (no `-pooler`), which accepts IPv4.
+      if (isPoolerRefusal(err) && databaseUrl.includes("-pooler")) {
+        const directUrl = databaseUrl.replace("-pooler.", ".");
+        console.warn(
+          `[db] pooler refused (${err.code}); retrying against direct endpoint`,
+        );
+        await pool.end();
+        pool = await buildNeonPool(directUrl);
+        await applyNeonMigrations(pool);
+      } else {
+        throw err;
+      }
+    }
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -108,6 +134,17 @@ function createNeonSql(): Promise<Sql> {
     throw err;
   });
   return globalRef.__pgSqlPromise__;
+}
+
+/** True when the pooler refused the connection (IPv4-only runtime). */
+function isPoolerRefusal(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as { code?: unknown }).code === "string" &&
+    ["ECONNREFUSED", "ENOTFOUND"].includes((err as { code: string }).code)
+  );
 }
 
 /**
