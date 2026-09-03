@@ -249,6 +249,9 @@ const DEFAULT_VOCAB: VocabSeed[] = [
 
 async function insertVocab(estudioId: string) {
   const sql = await getSql();
+  // Skip seed for estudios that no longer exist (see insertMedios).
+  const estudio = await sql<{ id: string }>`select id from estudios where id = ${estudioId}`;
+  if (estudio.length === 0) return;
   const existing = await sql<{ c: number }>`
     select count(*)::int as c from estudio_vocab where estudio_id = ${estudioId}
   `;
@@ -281,6 +284,9 @@ type MetadataSeed = {
 
 async function insertEstudioMetadata(estudioId: string, data: MetadataSeed) {
   const sql = await getSql();
+  // Skip seed for estudios that no longer exist (see insertMedios).
+  const estudio = await sql<{ id: string }>`select id from estudios where id = ${estudioId}`;
+  if (estudio.length === 0) return;
   const existing = await sql<{ c: number }>`
     select count(*)::int as c from estudio_metadata where estudio_id = ${estudioId}
   `;
@@ -332,6 +338,11 @@ const BELTRAN_METADATA: MetadataSeed = {
 
 async function insertMedios(estudioId: string, medios: MedioSeed[]) {
   const sql = await getSql();
+  // Skip seed for estudios that no longer exist (e.g. a demo estudio the
+  // user deleted in production). Inserting against a missing estudio hits
+  // the payment_methods_estudio_id_fkey FK and 500s every request.
+  const estudio = await sql<{ id: string }>`select id from estudios where id = ${estudioId}`;
+  if (estudio.length === 0) return;
   const existing = await sql<{ c: number }>`
     select count(*)::int as c from payment_methods where estudio_id = ${estudioId}
   `;
