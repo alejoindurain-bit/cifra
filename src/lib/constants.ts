@@ -90,14 +90,6 @@ export const DEMO_ACCOUNTS = [
     label: "Muestra",
     hint: "Todo encendido, datos de juguete",
   },
-  {
-    estudioId: BELTRAN_ESTUDIO_ID,
-    email: "lapaz@cifra.demo",
-    password: "lapaz12",
-    name: "Dueño La Paz",
-    label: "La Paz",
-    hint: "CABA · sin módulo PBA/CPCEBA",
-  },
 ] as const;
 
 export const DEMO_LOGIN_HIDE_KEY = "cifra-hide-demo-logins";
