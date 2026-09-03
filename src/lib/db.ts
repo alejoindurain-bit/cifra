@@ -1,4 +1,5 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+import { Pool } from "pg";
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
@@ -7,8 +8,16 @@ export type DbSource = "neon" | "pglite";
 // "unset" — otherwise production would silently run on the PGLite fallback.
 const rawDatabaseUrl =
   typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
+const trimmedUrl = rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+// Neon's pooler endpoint (`*-pooler.*`) only accepts IPv6. Vercel's serverless
+// runtime is IPv4-only and would `ECONNREFUSED` on it. Rewrite the URL to the
+// direct endpoint (no `-pooler`) when we're on Vercel. Local dev (dual-stack)
+// keeps the original URL.
+const onVercel = typeof process !== "undefined" && Boolean(process.env.VERCEL);
 const databaseUrl =
-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+  trimmedUrl && onVercel && trimmedUrl.includes("-pooler.")
+    ? trimmedUrl.replace("-pooler.", ".")
+    : trimmedUrl;
 
 /**
  * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
@@ -86,45 +95,23 @@ function toSql(run: Run): Sql {
 }
 
 /**
- * Build a `pg` Pool from a Neon connection URL. The pooled endpoint
- * (`*-pooler.*`) only accepts IPv6 connections, which Vercel's serverless
- * runtime (IPv4-only) cannot reach — it answers with `ECONNREFUSED`. When that
- * happens, retry against the direct endpoint (`*` without `-pooler`), which
- * accepts IPv4. Local dev (dual-stack) never hits the fallback.
+ * Build a `pg` Pool from a Neon connection URL. The pooler's IPv6-only nature
+ * is handled upstream by rewriting the URL at module load (see `databaseUrl`
+ * above) so every consumer of `databaseUrl` — this function, Better Auth's
+ * Pool, anything else — gets the direct endpoint on Vercel.
  */
-function buildNeonPool(url: string): Promise<import("pg").Pool> {
-  return import("pg").then(({ Pool }) => new Pool({ connectionString: url }));
-}
-
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
     const { types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-
-    let pool = await buildNeonPool(databaseUrl);
+    const pool = new Pool({ connectionString: databaseUrl });
     // Apply pending migrations on first connect. Vercel's build sandbox cannot
     // resolve the Neon hostname (cross-region DNS), so migrations run at
     // runtime on the serverless instance instead. Idempotent — the second
     // request sees the up-to-date `_migrations` table and skips.
-    try {
-      await applyNeonMigrations(pool);
-    } catch (err) {
-      // The pooler endpoint rejects IPv4-only runtimes. Fall back to the
-      // direct endpoint (no `-pooler`), which accepts IPv4.
-      if (isPoolerRefusal(err) && databaseUrl.includes("-pooler")) {
-        const directUrl = databaseUrl.replace("-pooler.", ".");
-        console.warn(
-          `[db] pooler refused (${err.code}); retrying against direct endpoint`,
-        );
-        await pool.end();
-        pool = await buildNeonPool(directUrl);
-        await applyNeonMigrations(pool);
-      } else {
-        throw err;
-      }
-    }
+    await applyNeonMigrations(pool);
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -134,17 +121,6 @@ function createNeonSql(): Promise<Sql> {
     throw err;
   });
   return globalRef.__pgSqlPromise__;
-}
-
-/** True when the pooler refused the connection (IPv4-only runtime). */
-function isPoolerRefusal(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    typeof (err as { code?: unknown }).code === "string" &&
-    ["ECONNREFUSED", "ENOTFOUND"].includes((err as { code: string }).code)
-  );
 }
 
 /**

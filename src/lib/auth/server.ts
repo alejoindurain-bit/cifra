@@ -35,7 +35,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
-import { ensureDbReady, getPglite } from "../db";
+import { buildNeonPoolWithFallback, ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
@@ -105,8 +105,15 @@ const LOCAL_DEV_ORIGINS: string[] = [
 ];
 const baseURL = explicitBaseURL ?? {
   // Include loopback hosts so dynamic baseURL resolves for local email/password
-  // (not only the preview wildcard).
-  allowedHosts: [...previewAllowedHosts, "localhost", "127.0.0.1", "[::1]"],
+  // (not only the preview wildcard). Also include the Vercel deploy host so a
+  // deployed app (no BETTER_AUTH_URL set) resolves its own origin.
+  allowedHosts: [
+    ...previewAllowedHosts,
+    "*.vercel.app",
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+  ],
   // `auto` → trust both http:// and https:// expansions of allowedHosts
   // (preview is https; local dev is http).
   protocol: "auto" as const,
@@ -114,14 +121,20 @@ const baseURL = explicitBaseURL ?? {
 };
 
 // Origins Better Auth accepts on credentialed POSTs (sign-up/sign-in, etc.).
-// Missing entries here surface as FORBIDDEN "Invalid origin".
+// Missing entries here surface as FORBIDDEN "Invalid origin". When the
+// deployer sets BETTER_AUTH_URL we use just that (no wildcards needed — they
+// pin a single origin). In dynamic-baseURL mode (no env var) we must also
+// allow `*.vercel.app` so the deployed app's own origin is accepted.
+const VERCEL_DEPLOY_HOSTS = ["*.vercel.app"] as const;
 const trustedOrigins: string[] = explicitBaseURL
   ? [explicitBaseURL, ...LOCAL_DEV_ORIGINS]
   : [
       // Host wildcards (matched against Origin's host)
       ...previewAllowedHosts,
+      ...VERCEL_DEPLOY_HOSTS,
       // Full-origin wildcards (matched against Origin)
       ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
+      ...VERCEL_DEPLOY_HOSTS.flatMap((host) => [`https://${host}`, `http://${host}`]),
       ...LOCAL_DEV_ORIGINS,
     ];
 
