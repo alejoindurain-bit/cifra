@@ -41,8 +41,17 @@ function buildWorkbookXml(sheets: Array<{ name: string; headers: string[]; rows:
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Styles>
-<Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="2D6A4F" ss:Pattern="Solid"/><Font ss:Color="FFFFFF"/></Style>
-<Style ss:ID="num"><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="Default" ss:Name="Normal">
+  <Font ss:FontName="Calibri" ss:Size="11"/>
+</Style>
+<Style ss:ID="hdr">
+  <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+  <Interior ss:Color="#2D6A4F" ss:Pattern="Solid"/>
+</Style>
+<Style ss:ID="num">
+  <Font ss:FontName="Calibri" ss:Size="11"/>
+  <NumberFormat ss:Format="#,##0.00"/>
+</Style>
 </Styles>
 ${sheets.map(buildSheetXml).join("\n")}
 </Workbook>`;
