@@ -97,33 +97,53 @@ function sheetXml(sheet: Sheet): string {
   return `<Worksheet ss:Name="${xmlEscape(sheetName(sheet.name))}"><Table>${colWidths}${header}${body}</Table></Worksheet>`;
 }
 
-export function downloadWorkbook(filename: string, sheets: Sheet[]) {
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles>
-<Style ss:ID="Default" ss:Name="Normal">
-  <Font ss:FontName="Calibri" ss:Size="11"/>
-</Style>
-<Style ss:ID="hdr">
-  <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
-  <Interior ss:Color="#2D6A4F" ss:Pattern="Solid"/>
-</Style>
-<Style ss:ID="num">
-  <Font ss:FontName="Calibri" ss:Size="11"/>
-  <NumberFormat ss:Format="#,##0.00"/>
-</Style>
-</Styles>
-${sheets.map(sheetXml).join("\n")}
-</Workbook>`;
-  const blob = new Blob(["\uFEFF" + xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+export async function downloadWorkbook(filename: string, sheets: Sheet[]) {
+  const ExcelJS = await import("exceljs");
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Cifra Multi";
+  wb.created = new Date();
+
+  const headerFill: import("exceljs").Fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF2D6A4F" },
+  };
+  const headerFont: Partial<import("exceljs").Font> = {
+    bold: true,
+    color: { argb: "FFFFFFFF" },
+    size: 11,
+  };
+
+  for (const s of sheets) {
+    const ws = wb.addWorksheet(sheetName(s.name));
+    ws.columns = s.headers.map((h, i) => {
+      const maxLen = s.rows.reduce((m, r) => {
+        const v = r[i];
+        const len = v != null ? String(v).length : 0;
+        return Math.max(m, len);
+      }, h.length);
+      return { header: h, width: Math.min(Math.max(maxLen + 2, 14), 40) };
+    });
+    const headerRow = ws.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.fill = headerFill;
+      cell.font = headerFont;
+      cell.alignment = { vertical: "middle", horizontal: "left" };
+    });
+    headerRow.commit();
+    for (const r of s.rows) {
+      ws.addRow(r);
+    }
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.endsWith(".xls") ? filename : `${filename}.xls`;
+  a.download = filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -131,7 +151,7 @@ ${sheets.map(sheetXml).join("\n")}
 }
 
 export function stamp(prefix: string): string {
-  return `${prefix}-${todayISO()}.xls`;
+  return `${prefix}-${todayISO()}.xlsx`;
 }
 
 export function clientsSheet(rows: Client[]): Sheet {

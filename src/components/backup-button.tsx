@@ -26,16 +26,16 @@ export function BackupButton({
     mutationFn: async () => {
       if (kind === "clients") {
         const rows = await exportClients();
-        downloadWorkbook(stamp("cifra-clientes"), [clientsSheet(rows)]);
+        await downloadWorkbook(stamp("cifra-clientes"), [clientsSheet(rows)]);
         return rows.length;
       }
       if (kind === "ledger") {
         const rows = await exportLedger();
-        downloadWorkbook(stamp("cifra-mayor"), [ledgerSheet(rows)]);
+        await downloadWorkbook(stamp("cifra-mayor"), [ledgerSheet(rows)]);
         return rows.length;
       }
       const data = await exportBackup();
-      downloadWorkbook(stamp("cifra-respaldo"), [
+      await downloadWorkbook(stamp("cifra-respaldo"), [
         clientsSheet(data.clients),
         ledgerSheet(data.ledger),
         instructionsSheet(),

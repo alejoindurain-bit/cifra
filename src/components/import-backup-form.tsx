@@ -72,12 +72,17 @@ export function ImportBackupForm() {
     setResult(null);
   };
 
-  const readFileAsText = (f: File): Promise<string> => {
+  const readFileAsBase64 = (f: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Strip the data:application/...;base64, prefix
+        const commaIdx = result.indexOf(",");
+        resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+      };
       reader.onerror = () => reject(reader.error);
-      reader.readAsText(f);
+      reader.readAsDataURL(f);
     });
   };
 
@@ -85,8 +90,8 @@ export function ImportBackupForm() {
     if (!file) return;
     setPreviewing(true);
     try {
-      const xml = await readFileAsText(file);
-      const res = await previewImport({ data: { xml } });
+      const base64 = await readFileAsBase64(file);
+      const res = await previewImport({ data: { base64 } });
       setPreview(res as any);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al analizar el archivo");
@@ -99,10 +104,10 @@ export function ImportBackupForm() {
     if (!file || !preview) return;
     setImporting(true);
     try {
-      const xml = await readFileAsText(file);
+      const base64 = await readFileAsBase64(file);
       const res = await commitImport({
         data: {
-          xml,
+          base64,
           clientDecisions: clientDecisions as Record<string, "update" | "skip">,
           txDecisions: txDecisions as Record<string, "create" | "skip">,
         },
@@ -121,12 +126,19 @@ export function ImportBackupForm() {
   const handleDownloadTemplate = async () => {
     try {
       const res = await downloadTemplate();
-      const r = res as { filename: string; xml: string };
-      const blob = new Blob([r.xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+      const r = res as { filename: string; base64: string };
+      const binary = atob(r.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = res.filename;
+      a.download = r.filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
