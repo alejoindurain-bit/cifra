@@ -19,7 +19,7 @@ export type ImportResult = {
   skipped: ImportSkip[];
 };
 
-function foldName(value: string): string {
+export function foldName(value: string): string {
   return value
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
@@ -81,36 +81,16 @@ function parseSheet(xml: string, name: string): Array<Array<string | number | nu
   return rows;
 }
 
-function cellStr(v: string | number | null | undefined): string {
+export function cellStr(v: string | number | null | undefined): string {
   if (v == null || v === "") return "";
   return String(v).trim();
 }
 
-function cellNum(v: string | number | null | undefined): number | null {
+export function cellNum(v: string | number | null | undefined): number | null {
   if (v == null || v === "") return null;
   if (typeof v === "number" && Number.isFinite(v)) return v;
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
-}
-
-function formatCuit(raw: string): string | null {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return null;
-  if (digits.length === 11) return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`;
-  return raw.trim() || null;
-}
-
-function parseDocs(raw: string): string[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function asDate(raw: string): string | null {
-  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
 }
 
 const MONTHS: Record<string, number> = {
@@ -194,8 +174,8 @@ async function ensureBackupMedios(estudioId: string) {
 
 async function importInto(estudioId: string, xml: string): Promise<ImportResult> {
   const skipped: ImportSkip[] = [];
-  const clientRows = parseSheet(xml, "Clientes");
-  const ledgerRows = parseSheet(xml, "Libro mayor");
+  const clientSheet = parseSheet(xml, "Clientes");
+  const ledgerSheet = parseSheet(xml, "Libro mayor");
   const sql = await getSql();
 
   await sql`
@@ -206,6 +186,10 @@ async function importInto(estudioId: string, xml: string): Promise<ImportResult>
 
   await ensureBackupMedios(estudioId);
 
+  // Build header maps for both sheets
+  const clientHeaderMap = buildHeaderMap(clientSheet[0] || []);
+  const ledgerHeaderMap = buildHeaderMap(ledgerSheet[0] || []);
+
   const existingClients = await sql<{ id: number; name: string }>`
     select id, name from clients where estudio_id = ${estudioId}
   `;
@@ -214,31 +198,54 @@ async function importInto(estudioId: string, xml: string): Promise<ImportResult>
   let clientsInserted = 0;
   let clientsReused = 0;
 
-  for (let i = 1; i < clientRows.length; i += 1) {
-    const r = clientRows[i];
-    const oldId = cellNum(r[0]);
-    const name = cellStr(r[1]);
+  // Process client rows (skip header)
+  for (let i = 1; i < clientSheet.length; i += 1) {
+    const r = clientSheet[i];
+    const oldId = cellNum(getCellByHeader(r, clientHeaderMap, "id"));
+    const name = cellStr(getCellByHeader(r, clientHeaderMap, "nombre")) ||
+                 cellStr(getCellByHeader(r, clientHeaderMap, "Nombre / Razón social"));
     if (!name) {
       skipped.push({ sheet: "Clientes", row: i + 1, reason: "sin nombre" });
       continue;
     }
-    const contact = cellStr(r[2]) || null;
-    const cuit = formatCuit(cellStr(r[3]));
-    const companyType = cellStr(r[4]) || null;
-    const ivaCondition = cellStr(r[5]) || null;
-    const feeKind = cellStr(r[6]);
-    const monthlyModules = cellNum(r[7]) ?? 0;
-    const monthlyAmount = cellNum(r[8]) ?? 0;
-    const ganancias = cellStr(r[9]);
-    const activeRaw = cellStr(r[10]);
-    const createdAt = cellStr(r[12]) || null;
-    const updatedAt = cellStr(r[13]) || createdAt;
+    const contact = cellStr(getCellByHeader(r, clientHeaderMap, "contacto")) ||
+                   cellStr(getCellByHeader(r, clientHeaderMap, "Contacto")) || null;
+    const cuit = formatCuit(cellStr(getCellByHeader(r, clientHeaderMap, "cuit")) ||
+                           cellStr(getCellByHeader(r, clientHeaderMap, "CUIT")));
+    const companyType = cellStr(getCellByHeader(r, clientHeaderMap, "tipo_sociedad")) ||
+                       cellStr(getCellByHeader(r, clientHeaderMap, "Tipo de empresa")) || null;
+    const ivaCondition = cellStr(getCellByHeader(r, clientHeaderMap, "iva")) ||
+                         cellStr(getCellByHeader(r, clientHeaderMap, "Condición frente al IVA")) || null;
+    const feeKindRaw = cellStr(getCellByHeader(r, clientHeaderMap, "honorario_tipo")) ||
+                       cellStr(getCellByHeader(r, clientHeaderMap, "Tipo de honorario"));
+    const monthlyModules = cellNum(getCellByHeader(r, clientHeaderMap, "modulos_mensuales")) ??
+                           cellNum(getCellByHeader(r, clientHeaderMap, "Módulos por mes")) ?? 0;
+    const monthlyAmount = cellNum(getCellByHeader(r, clientHeaderMap, "monto_mensual")) ??
+                           cellNum(getCellByHeader(r, clientHeaderMap, "Monto mensual ($)")) ?? 0;
+    const ganancias = cellStr(getCellByHeader(r, clientHeaderMap, "ganancias")) ||
+                      cellStr(getCellByHeader(r, clientHeaderMap, "¿Ganancias incluida?"));
+    const activeRaw = cellStr(getCellByHeader(r, clientHeaderMap, "activo")) ||
+                      cellStr(getCellByHeader(r, clientHeaderMap, "¿Cliente activo?"));
+    const createdAt = cellStr(getCellByHeader(r, clientHeaderMap, "creado")) ||
+                      cellStr(getCellByHeader(r, clientHeaderMap, "Creado")) || null;
+    const updatedAt = cellStr(getCellByHeader(r, clientHeaderMap, "actualizado")) ||
+                      cellStr(getCellByHeader(r, clientHeaderMap, "Actualizado")) || createdAt;
+
+    // Normalize feeKind values from Spanish to internal format
+    let feeKind = feeKindRaw;
+    if (feeKindRaw === "amount" || feeKindRaw === "monto fijo") {
+      feeKind = "amount";
+    } else if (feeKindRaw === "modules" || feeKindRaw === "módulos cpceba") {
+      feeKind = "modules";
+    } else if (feeKindRaw === "variable" || feeKindRaw === "sin cargo automático") {
+      feeKind = "variable";
+    }
 
     const fixedFee = feeKind === "modules" || feeKind === "amount";
     const modules = feeKind === "modules" ? monthlyModules : 0;
     const amount = feeKind === "amount" ? monthlyAmount : 0;
-    const gananciasInMonthly = ganancias === "En mensual";
-    const active = activeRaw !== "No";
+    const gananciasInMonthly = ganancias === "En mensual" || ganancias === "Sí";
+    const active = activeRaw !== "No" && activeRaw !== "no";
 
     try {
       const key = foldName(name);
@@ -295,23 +302,38 @@ async function importInto(estudioId: string, xml: string): Promise<ImportResult>
   let movementsInserted = 0;
   const billed = new Map<string, number>();
 
-  for (let i = 1; i < ledgerRows.length; i += 1) {
-    const r = ledgerRows[i];
-    const date = asDate(cellStr(r[1]));
-    const oldClientId = cellNum(r[2]);
-    const clientName = cellStr(r[3]);
-    const concept = cellStr(r[4]);
-    const tipoLabel = cellStr(r[5]);
-    const amount = cellNum(r[6]);
-    const createdBy = cellStr(r[7]) || "respaldo";
-    const createdAt = cellStr(r[8]) || null;
-    const medio = cellStr(r[9]);
-    const cuenta = cellStr(r[10]) || null;
-    const docs = parseDocs(cellStr(r[11]));
-    const dollarRate = cellNum(r[12]);
-    const observations = cellStr(r[13]) || null;
+  // Process ledger rows (skip header)
+  for (let i = 1; i < ledgerSheet.length; i += 1) {
+    const r = ledgerSheet[i];
+    const date = asDate(cellStr(getCellByHeader(r, ledgerHeaderMap, "fecha")) ||
+                       cellStr(getCellByHeader(r, ledgerHeaderMap, "Fecha")));
+    const oldClientId = cellNum(getCellByHeader(r, ledgerHeaderMap, "cliente_id")) ||
+                       cellNum(getCellByHeader(r, ledgerHeaderMap, "Cliente"));
+    const clientName = cellStr(getCellByHeader(r, ledgerHeaderMap, "cliente")) ||
+                       cellStr(getCellByHeader(r, ledgerHeaderMap, "Cliente"));
+    const concept = cellStr(getCellByHeader(r, ledgerHeaderMap, "concepto")) ||
+                    cellStr(getCellByHeader(r, ledgerHeaderMap, "Concepto"));
+    const tipoLabel = cellStr(getCellByHeader(r, ledgerHeaderMap, "tipo")) ||
+                      cellStr(getCellByHeader(r, ledgerHeaderMap, "Tipo (Cargo/Pago)"));
+    const amount = cellNum(getCellByHeader(r, ledgerHeaderMap, "monto")) ||
+                   cellNum(getCellByHeader(r, ledgerHeaderMap, "Monto ($)"));
+    const createdBy = cellStr(getCellByHeader(r, ledgerHeaderMap, "creado_por")) ||
+                      cellStr(getCellByHeader(r, ledgerHeaderMap, "Creado por")) || "respaldo";
+    const createdAt = cellStr(getCellByHeader(r, ledgerHeaderMap, "creado_el")) ||
+                      cellStr(getCellByHeader(r, ledgerHeaderMap, "Creado el")) || null;
+    const medio = cellStr(getCellByHeader(r, ledgerHeaderMap, "medio_pago")) ||
+                  cellStr(getCellByHeader(r, ledgerHeaderMap, "Medio de pago"));
+    const cuenta = cellStr(getCellByHeader(r, ledgerHeaderMap, "cuenta_acreditacion")) ||
+                   cellStr(getCellByHeader(r, ledgerHeaderMap, "Cuenta de acreditación")) || null;
+    const docs = parseDocs(cellStr(getCellByHeader(r, ledgerHeaderMap, "documentacion")) ||
+                          cellStr(getCellByHeader(r, ledgerHeaderMap, "Documentación")));
+    const dollarRate = cellNum(getCellByHeader(r, ledgerHeaderMap, "cotizacion_dolar")) ||
+                       cellNum(getCellByHeader(r, ledgerHeaderMap, "Cotización dólar"));
+    const observations = cellStr(getCellByHeader(r, ledgerHeaderMap, "observaciones")) ||
+                         cellStr(getCellByHeader(r, ledgerHeaderMap, "Observaciones")) || null;
 
-    const type = tipoLabel === "Cargo" ? "charge" : tipoLabel === "Pago" ? "payment" : null;
+    const type = tipoLabel === "Cargo" ? "charge" :
+                 tipoLabel === "Pago" ? "payment" : null;
     if (!date) {
       skipped.push({ sheet: "Libro mayor", row: i + 1, reason: "fecha inválida" });
       continue;
@@ -410,6 +432,46 @@ async function importInto(estudioId: string, xml: string): Promise<ImportResult>
 }
 
 let lastResult: ImportResult | null = null;
+
+export function buildHeaderMap(headerRow: Array<string | number | null>): Map<string, number> {
+  const map = new Map<string, number>();
+  headerRow.forEach((cell, index) => {
+    if (cell != null && typeof cell === "string") {
+      const normalized = cell.trim().toLowerCase();
+      map.set(normalized, index);
+    }
+  });
+  return map;
+}
+
+export function getCellByHeader(
+  row: Array<string | number | null>,
+  headerMap: Map<string, number>,
+  headerName: string
+): string | number | null | undefined {
+  const index = headerMap.get(headerName.toLowerCase());
+  return index !== undefined ? row[index] : undefined;
+}
+
+export function formatCuit(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length === 11) return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`;
+  return raw.trim() || null;
+}
+
+export function parseDocs(raw: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function asDate(raw: string): string | null {
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
 
 export async function importRespaldoIfNeeded(): Promise<ImportResult> {
   const empty: ImportResult = {

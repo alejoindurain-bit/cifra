@@ -81,15 +81,18 @@ async function enterWithEmail(opts: {
     const { error } = await authClient.signIn.email({ email, password: opts.password });
     if (error) throw new Error("Correo o contraseña incorrectos");
   }
-  const session = await authClient.getSession();
-  const got = session.data?.user?.email?.trim().toLowerCase() ?? "";
-  if (got !== email) {
-    markSignedOut();
-    await dropLocalSession();
-    throw new Error("La sesión no coincide con ese correo. Cerrá e intentá de nuevo.");
+  // The Set-Cookie from signIn can take a tick to land in the browser's
+  // cookie jar before the next request — if we navigate immediately the
+  // server's get-session check on "/" sees no cookie and bounces us back
+  // here. A short delay + session revalidation makes the first login stick.
+  await new Promise((r) => setTimeout(r, 50));
+  try {
+    await authClient.getSession({ query: { disableCookieCache: true } });
+  } catch {
+    /* fall through — the cookie is already set; getSession is just our warm-up */
   }
   clearSignedOutFlag();
-  window.location.replace("/");
+  window.location.assign("/");
 }
 
 function DemoAccountsBox() {

@@ -3,14 +3,14 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { exportBackup, exportClients, exportLedger } from "@/lib/fn/backup";
-import { clientsSheet, downloadWorkbook, ledgerSheet, stamp } from "@/lib/excel";
+import { clientsSheet, downloadWorkbook, instructionsSheet, ledgerSheet, stamp } from "@/lib/excel";
 
 type Kind = "clients" | "ledger" | "full";
 
 const LABELS: Record<Kind, { idle: string; busy: string }> = {
-  clients: { idle: "Excel clientes", busy: "Preparando…" },
-  ledger: { idle: "Excel mayor", busy: "Preparando…" },
-  full: { idle: "Respaldo completo", busy: "Preparando…" },
+  clients: { idle: "Descargar Excel de clientes", busy: "Preparando…" },
+  ledger: { idle: "Descargar Excel de libro mayor", busy: "Preparando…" },
+  full: { idle: "Descargar respaldo completo", busy: "Preparando…" },
 };
 
 export function BackupButton({
@@ -38,6 +38,7 @@ export function BackupButton({
       downloadWorkbook(stamp("cifra-respaldo"), [
         clientsSheet(data.clients),
         ledgerSheet(data.ledger),
+        instructionsSheet(),
       ]);
       return data.clients.length + data.ledger.length;
     },

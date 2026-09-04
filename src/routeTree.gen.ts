@@ -17,6 +17,7 @@ import { Route as CobranzasRouteImport } from './routes/cobranzas'
 import { Route as CuentaCorrienteRouteImport } from './routes/cuenta-corriente'
 import { Route as EquipoRouteImport } from './routes/equipo'
 import { Route as ExtraordinariosRouteImport } from './routes/extraordinarios'
+import { Route as ImportarRouteImport } from './routes/importar'
 import { Route as LibroMayorRouteImport } from './routes/libro-mayor'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as VencimientosRouteImport } from './routes/vencimientos'
@@ -62,6 +63,11 @@ const ExtraordinariosRoute = ExtraordinariosRouteImport.update({
   path: '/extraordinarios',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ImportarRoute = ImportarRouteImport.update({
+  id: '/importar',
+  path: '/importar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibroMayorRoute = LibroMayorRouteImport.update({
   id: '/libro-mayor',
   path: '/libro-mayor',
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/cuenta-corriente': typeof CuentaCorrienteRoute
   '/equipo': typeof EquipoRoute
   '/extraordinarios': typeof ExtraordinariosRoute
+  '/importar': typeof ImportarRoute
   '/libro-mayor': typeof LibroMayorRoute
   '/login': typeof LoginRoute
   '/vencimientos': typeof VencimientosRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/cuenta-corriente': typeof CuentaCorrienteRoute
   '/equipo': typeof EquipoRoute
   '/extraordinarios': typeof ExtraordinariosRoute
+  '/importar': typeof ImportarRoute
   '/libro-mayor': typeof LibroMayorRoute
   '/login': typeof LoginRoute
   '/vencimientos': typeof VencimientosRoute
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/cuenta-corriente': typeof CuentaCorrienteRoute
   '/equipo': typeof EquipoRoute
   '/extraordinarios': typeof ExtraordinariosRoute
+  '/importar': typeof ImportarRoute
   '/libro-mayor': typeof LibroMayorRoute
   '/login': typeof LoginRoute
   '/vencimientos': typeof VencimientosRoute
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
     | '/cuenta-corriente'
     | '/equipo'
     | '/extraordinarios'
+    | '/importar'
     | '/libro-mayor'
     | '/login'
     | '/vencimientos'
@@ -151,6 +161,7 @@ export interface FileRouteTypes {
     | '/cuenta-corriente'
     | '/equipo'
     | '/extraordinarios'
+    | '/importar'
     | '/libro-mayor'
     | '/login'
     | '/vencimientos'
@@ -165,6 +176,7 @@ export interface FileRouteTypes {
     | '/cuenta-corriente'
     | '/equipo'
     | '/extraordinarios'
+    | '/importar'
     | '/libro-mayor'
     | '/login'
     | '/vencimientos'
@@ -180,6 +192,7 @@ export interface RootRouteChildren {
   CuentaCorrienteRoute: typeof CuentaCorrienteRoute
   EquipoRoute: typeof EquipoRoute
   ExtraordinariosRoute: typeof ExtraordinariosRoute
+  ImportarRoute: typeof ImportarRoute
   LibroMayorRoute: typeof LibroMayorRoute
   LoginRoute: typeof LoginRoute
   VencimientosRoute: typeof VencimientosRoute
@@ -244,6 +257,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExtraordinariosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/importar': {
+      id: '/importar'
+      path: '/importar'
+      fullPath: '/importar'
+      preLoaderRoute: typeof ImportarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/libro-mayor': {
       id: '/libro-mayor'
       path: '/libro-mayor'
@@ -284,6 +304,7 @@ const rootRouteChildren: RootRouteChildren = {
   CuentaCorrienteRoute: CuentaCorrienteRoute,
   EquipoRoute: EquipoRoute,
   ExtraordinariosRoute: ExtraordinariosRoute,
+  ImportarRoute: ImportarRoute,
   LibroMayorRoute: LibroMayorRoute,
   LoginRoute: LoginRoute,
   VencimientosRoute: VencimientosRoute,

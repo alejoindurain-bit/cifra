@@ -13,6 +13,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Upload,
   UserCog,
   Users,
   Wallet,
@@ -79,6 +80,7 @@ const NAV: NavItem[] = [
   },
   { to: "/equipo", label: "Equipo", short: "Equipo", icon: UserCog, roles: ["owner"] },
   { to: "/ajustes", label: "Ajustes", short: "Ajustes", icon: Settings, roles: ["owner"] },
+  { to: "/importar", label: "Importar", short: "Importar", icon: Upload, roles: ["owner"] },
 ];
 
 function NavLinks({
